@@ -1,0 +1,56 @@
+[
+  {
+    "id": "heat-misconception",
+    "question": "A metal spoon and a wooden spoon have been in the same room all day. Why does the metal spoon feel colder?",
+    "answer": "The metal has a lower temperature because metals are naturally cold.",
+    "expected_solution": "Both are at room temperature. Metal conducts heat away from a warmer hand faster.",
+    "followup_answer": "A thermometer would show the same temperature; metal transfers heat from my hand faster.",
+    "review_focus": "Distinguish temperature from conductivity; ground the diagnosis in the actual answer.",
+    "followup_question": "What would a thermometer show for each spoon, and why would they still feel different?"
+  },
+  {
+    "id": "heat-correct",
+    "question": "Why does metal feel colder than wood at the same room temperature?",
+    "answer": "Both have the same temperature. Metal conducts heat away from my warm hand faster.",
+    "expected_solution": "Equal temperature with different rates of heat transfer.",
+    "followup_answer": "If both were hotter than my hand, metal would feel hotter because heat flows into my hand faster.",
+    "review_focus": "Do not invent a misconception in a correct answer.",
+    "followup_question": "How would metal and wood feel if both were hotter than your hand, and why?"
+  },
+  {
+    "id": "photosynthesis",
+    "question": "Where does most of a growing tree's added dry mass come from?",
+    "answer": "It absorbs soil through its roots and turns the soil into wood.",
+    "expected_solution": "Most added dry mass comes from atmospheric carbon dioxide fixed during photosynthesis, not soil uptake.",
+    "followup_answer": "Carbon dioxide supplies carbon for sugars that become biomass.",
+    "review_focus": "Correct the source-of-mass misconception without claiming roots absorb no nutrients.",
+    "followup_question": "Which atmospheric substance supplies the carbon in a tree's new biomass?"
+  },
+  {
+    "id": "force",
+    "question": "A puck slides at constant velocity on an ideal frictionless surface. What is the net horizontal force?",
+    "answer": "There must be a forward force to keep it moving.",
+    "expected_solution": "Zero net horizontal force; a net force changes velocity rather than maintaining it.",
+    "followup_answer": "It keeps the same velocity if the net force is zero.",
+    "review_focus": "Distinguish velocity from acceleration.",
+    "followup_question": "What happens to a puck's velocity if the net horizontal force is zero?"
+  },
+  {
+    "id": "ambiguous",
+    "question": "What happens to particles when a solid melts?",
+    "answer": "They change and move more.",
+    "expected_solution": "Particles gain mobility as the structure changes; the substance's constituent particles do not become a different chemical species just by melting.",
+    "followup_answer": "I mean they can move around each other; they do not become a new substance.",
+    "review_focus": "Ask for clarification rather than confidently assigning a chemical-change misconception.",
+    "followup_question": "What do you mean by particles changing when a solid melts: their chemical identity or their movement?"
+  },
+  {
+    "id": "insufficient",
+    "question": "Why do we see different phases of the Moon?",
+    "answer": "I don't know.",
+    "expected_solution": "We see varying portions of the sunlit half as the Moon orbits Earth; ordinary phases are not Earth's shadow.",
+    "followup_answer": "We see different amounts of its sunlit side.",
+    "review_focus": "Acknowledge insufficient evidence; do not invent a specific misconception.",
+    "followup_question": "What changes about the part of the Moon's sunlit side we can see during its orbit?"
+  }
+]

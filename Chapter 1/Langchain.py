@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import os
+
 from typing import List, Optional, Dict, Any, Literal
 from pydantic import BaseModel, Field
 from langchain_openai import ChatOpenAI
@@ -11,8 +13,10 @@ from langgraph.graph import StateGraph, END
 # =========================================================
 # 0) Config
 # =========================================================
-MODEL = "gpt-4o-mini"
-llm = ChatOpenAI(model=MODEL, temperature=0)
+MODEL = os.getenv("OPENAI_MODEL", "gpt-4o-mini")
+if __name__ == "__main__" and not os.getenv("OPENAI_API_KEY"):
+    raise SystemExit("Set OPENAI_API_KEY in your shell before running the tutor. See README.md.")
+llm = ChatOpenAI(model=MODEL, temperature=0, timeout=30, max_retries=1)
 
 CONFIDENCE_THRESHOLD = 0.72
 MAX_CLARIFY_ROUNDS = 2
@@ -40,7 +44,7 @@ class Diagnosis(BaseModel):
 
 
 class ClarifyOut(BaseModel):
-    questions: List[str] = Field(..., min_items=1, max_items=3)
+    questions: List[str] = Field(..., min_length=1, max_length=3)
 
 
 class FeedbackCore(BaseModel):
@@ -156,7 +160,7 @@ topic_question_chain = topic_question_prompt | llm.with_structured_output(TopicQ
 
 
 class ProblemsOut(BaseModel):
-    problems: List[str] = Field(..., min_items=5, max_items=5)
+    problems: List[str] = Field(..., min_length=5, max_length=5)
 
 
 problem_generation_prompt = ChatPromptTemplate.from_messages([
@@ -233,6 +237,18 @@ mastery_prompt = ChatPromptTemplate.from_messages([
      "Original problem context:\n{problem_statement}")
 ])
 mastery_chain = mastery_prompt | llm.with_structured_output(MasteryCheck)
+
+class MasteryRubric(BaseModel):
+    expected_key_points: List[str]
+    common_wrong_signals: List[str]
+    grading_rule: str
+
+rubric_prompt = ChatPromptTemplate.from_messages([
+    ("system", "Create a concise reference rubric for the EXACT supplied science question. Do not change the question. Include expected key points and common wrong signals."),
+    ("human", "Question: {question}\nOriginal context: {problem_statement}\nDiagnosis: {primary_claim}"),
+])
+rubric_chain = rubric_prompt | llm.with_structured_output(MasteryRubric)
+
 
 grade_prompt = ChatPromptTemplate.from_messages([
     ("system",
@@ -370,10 +386,22 @@ def node_clarify(state: AgentState) -> Dict[str, Any]:
         "student_response": state.student_response,
         "diagnosis": state.diagnosis.model_dump() if state.diagnosis else None,
     })
+    questions = list(state.clarifying_questions)
+    answers = list(state.clarifying_answers)
+    for question in out.questions:
+        print(f"\nClarifying question: {question}")
+        try:
+            answer = input("Student answer (leave blank to continue with uncertainty): ").strip()
+        except (EOFError, KeyboardInterrupt):
+            answer = ""
+        questions.append(question)
+        answers.append(answer)
     return {
-        "clarifying_questions": out.questions,
-        "clarify_round": state.clarify_round + 1
+        "clarifying_questions": questions,
+        "clarifying_answers": answers,
+        "clarify_round": state.clarify_round + 1,
     }
+
 
 def node_feedback(state: AgentState) -> Dict[str, Any]:
     core = feedback_chain.invoke({
@@ -452,12 +480,12 @@ def node_final_from_mastery(state: AgentState, _grade_result: Optional[Dict[str,
         mastery = state.mastery_answer or ""
         if mastery and initial:
             feedback_text = (
-                "Thanks for your responses — I can see how your second answer clarifies the first. "
+                "The feedback service is unavailable, so I cannot assess your two responses right now. "
                 "Continue to connect your ideas by explicitly linking your reasoning to the key points below."
             )
         elif mastery:
             feedback_text = (
-                "Thanks for your mastery answer — it helps check the earlier diagnosis. "
+                "The feedback service is unavailable, so I cannot assess this follow-up answer right now. "
                 "Use the micro-activity to practice applying the key idea."
             )
         else:
@@ -475,7 +503,7 @@ def node_final_from_mastery(state: AgentState, _grade_result: Optional[Dict[str,
             micro = (
                 "Micro-activity (2–3 min): Try a short targeted example and write 1–2 sentences explaining your reasoning."
             )
-        teacher = "Review student responses for clearer linkage between reasoning steps."
+        teacher = "Fallback only: no model assessment was completed. Review both responses yourself."
 
     out = FinalOutput(
         diagnosis=state.diagnosis if state.diagnosis else Diagnosis(
@@ -499,40 +527,24 @@ def node_final_from_mastery(state: AgentState, _grade_result: Optional[Dict[str,
     return {"output": out}
 
 def node_generate_mastery(state: AgentState) -> Dict[str, Any]:
-    mc = mastery_chain.invoke({
-        "primary_claim": state.diagnosis.primary_claim if state.diagnosis else "",
-        "problem_statement": state.problem_statement
-    })
-
-    # Prefer to use the clarifying/follow-up question as the mastery question when available.
-    desired_q = None
-    try:
-        if state.clarifying_questions:
-            desired_q = state.clarifying_questions[0]
-    except Exception:
-        desired_q = None
-    if not desired_q:
-        try:
-            desired_q = state.diagnosis.what_to_ask_next if state.diagnosis and getattr(state.diagnosis, 'what_to_ask_next', None) else None
-        except Exception:
-            desired_q = None
-
+    # The diagnosis's next question reflects the latest evidence, including clarification.
+    desired_q = state.diagnosis.what_to_ask_next if state.diagnosis else None
     if desired_q:
-        # Replace the question field in the generated MasteryCheck with the desired follow-up question
-        try:
-            mc_dict = mc.model_dump() if hasattr(mc, 'model_dump') else dict(mc)
-            mc_dict['question'] = desired_q
-            mc = MasteryCheck.parse_obj(mc_dict)
-        except Exception:
-            # If parsing fails, at least attach the original object and set question attribute if possible
-            try:
-                setattr(mc, 'question', desired_q)
-            except Exception:
-                pass
-
+        rubric = rubric_chain.invoke({
+            "question": desired_q,
+            "problem_statement": state.problem_statement,
+            "primary_claim": state.diagnosis.primary_claim,
+        })
+        mc = MasteryCheck(question=desired_q, **rubric.model_dump())
+    else:
+        mc = mastery_chain.invoke({
+            "primary_claim": state.diagnosis.primary_claim if state.diagnosis else "",
+            "problem_statement": state.problem_statement,
+        })
     if state.output:
         state.output.mastery_check = mc
     return {"mastery_check": mc, "mastery_round": state.mastery_round + 1, "output": state.output}
+
 
 def node_grade_mastery(state: AgentState) -> Dict[str, Any]:
     # If no answer provided, stop after generating mastery check (external interaction needed)
@@ -799,36 +811,10 @@ if __name__ == "__main__":
     print("\n=== RUN 1 (diagnosis + feedback + mastery check) ===")
     pretty_print(out1.get("output"))
 
-    # 2) Determine follow-up question: prefer clarifying_questions, then diagnosis.what_to_ask_next, then clarify_chain
-    clar_q = None
-    final_out = None
-    if out1.get("output"):
-        prior = out1.get("output")
-        try:
-            final_out = FinalOutput.parse_obj(prior) if isinstance(prior, dict) else prior
-        except Exception:
-            final_out = prior
-
-    if final_out:
-        clar_list = getattr(final_out, "clarifying_questions", []) or []
-        if clar_list:
-            clar_q = clar_list[0]
-        else:
-            try:
-                clar_q = getattr(final_out, "diagnosis", None).what_to_ask_next
-            except Exception:
-                clar_q = None
-
-    if not clar_q:
-        try:
-            clar_out = clarify_chain.invoke({
-                "problem_statement": out1.get("problem_statement", ""),
-                "student_response": out1.get("student_response", ""),
-                "diagnosis": getattr(final_out, "diagnosis", None) if final_out else None,
-            })
-            clar_q = clar_out.questions[0] if clar_out and getattr(clar_out, "questions", None) else None
-        except Exception:
-            clar_q = None
+    # Ask exactly the question for which the graph generated a reference rubric.
+    prior = out1.get("output")
+    final_out = FinalOutput.model_validate(prior) if isinstance(prior, dict) else prior
+    clar_q = final_out.mastery_check.question if final_out and final_out.mastery_check else None
 
     # 3) Ask follow-up (mastery) question and grade using a minimal state (no run1 context)
     if clar_q:
@@ -855,6 +841,7 @@ if __name__ == "__main__":
                     s2.mastery_check = None
             except Exception:
                 s2.mastery_check = None
+            s2.diagnosis = final_out.diagnosis if final_out else None
             s2.mastery_answer = follow_ans
 
             # final feedback that integrates the original and mastery answers
